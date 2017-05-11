@@ -1,0 +1,47 @@
+{
+    "__version": "2.3.0",
+    "__comments": "Sample template to deploy a vCenter Server Appliance with an embedded Platform Services Controller on an ESXi host.",
+    "new.vcsa": {
+        "esxi": {
+            "hostname": "VAR-ESXI-HOSTNAME",
+            "username": "root",
+            "password": "VAR-ESXI-PASSWORD",
+            "deployment.network": "VM Network",
+            "datastore": "vsanDatastore"
+        },
+        "appliance": {
+            "thin.disk.mode": true,
+            "deployment.option": "tiny",
+            "name": "Embedded-vCenter-Server-Appliance"
+        },
+        "network": {
+            "ip.family": "ipv4",
+            "mode": "static",
+            "ip": "VAR-VCSA-IP",
+            "dns.servers": [
+                "VAR-VCSA-DNS"
+            ],
+            "prefix": "VAR-VCSA-PREFIX",
+            "gateway": "VAR-VCSA-GATEWAY",
+            "system.name": "VAR-VCSA-HOSTNAME"
+        },
+        "os": {
+            "password": "VAR-VCSA-ROOT-PASSWORD",
+            "ssh.enable": VAR-VCSA-SSH-ENABLED,
+            "time.tools-sync": true
+        },
+        "sso": {
+            "password": "VAR-VCSA-SSO-PASSWORD",
+            "domain-name": "VAR-VCSA-SSO-DOMAIN-NAME",
+            "site-name": "VAR-VCSA-SSO-SITE-NAME"
+        },
+        "ovftool.arguments" : {
+            "prop:guestinfo.cis.appliance.root.shell" : "/bin/bash"
+        }
+    },
+    "ceip": {
+        "settings": {
+            "ceip.enabled": VAR-VCSA-CEIP-ENABLED
+        }
+    }
+}

@@ -1,0 +1,120 @@
+#!/bin/bash -x
+
+export HOME=/root
+
+if [ -e /root/ran_customized_photon ]; then 
+   exit
+else
+PHOTON_IP=$(vmtoolsd --cmd "info-get guestinfo.photon_ip")
+PHOTON_CIDR=$(vmtoolsd --cmd "info-get guestinfo.photon_cidr")
+PHOTON_GATEWAY=$(vmtoolsd --cmd "info-get guestinfo.photon_gateway")
+PHOTON_DNS=$(vmtoolsd --cmd "info-get guestinfo.photon_dns")
+cat > /etc/systemd/network/10-dhcp-en.network << __CUSTOMIZE_PHOTON__
+[Match]
+Name=e*
+
+[Network]
+Address=${PHOTON_IP}/${PHOTON_CIDR}
+Gateway=${PHOTON_GATEWAY}
+DNS=${PHOTON_DNS}
+Domain=code.vmware.com
+__CUSTOMIZE_PHOTON__
+systemctl restart systemd-networkd  
+touch /root/ran_customized_photon
+fi
+
+if [ -e /root/ran_vcsa_deployed ]; then
+    exit
+fi
+
+LOGFILE=/root/script.log
+
+echo "Sleeping 60 seconds for system to be initialized ..."
+sleep 60
+
+echo "Running startup script ..." > ${LOGFILE}
+
+START_TIME=$(date)
+
+echo "Extracting guestinfo properties and updating /root/vcsa.json ..."
+ESXI_HOSTNAME=$(vmtoolsd --cmd "info-get guestinfo.esxi_hostname")
+ESXI_PASSWORD=$(vmtoolsd --cmd "info-get guestinfo.esxi_password")
+VCSA_IP=$(vmtoolsd --cmd "info-get guestinfo.vcsa_ip")
+VCSA_DNS=$(vmtoolsd --cmd "info-get guestinfo.vcsa_dns")
+VCSA_PREFIX=$(vmtoolsd --cmd "info-get guestinfo.vcsa_prefix")
+VCSA_GATEWAY=$(vmtoolsd --cmd "info-get guestinfo.vcsa_gateway")
+VCSA_HOSTNAME=$(vmtoolsd --cmd "info-get guestinfo.vcsa_hostname")
+VCSA_SSO_DOMAIN_NAME=$(vmtoolsd --cmd "info-get guestinfo.vcsa_sso_domain_name")
+VCSA_SSO_SITE_NAME=$(vmtoolsd --cmd "info-get guestinfo.vcsa_sso_site_name")
+VCSA_ROOT_PASSWORD=$(vmtoolsd --cmd "info-get guestinfo.vcsa_root_password")
+VCSA_SSO_PASSWORD=$(vmtoolsd --cmd "info-get guestinfo.vcsa_sso_password")
+VCSA_SSH_ENABLED=$(vmtoolsd --cmd "info-get guestinfo.vcsa_ssh_enabled")
+VCSA_CEIP_ENABLED=$(vmtoolsd --cmd "info-get guestinfo.vcsa_ceip_enabled")
+VCSA_DATACENTER_NAME=$(vmtoolsd --cmd "info-get guestinfo.vcsa_datacenter_name")
+VCSA_CLUSTER_NAME=$(vmtoolsd --cmd "info-get guestinfo.vcsa_cluster_name")
+VCSA_WEBCLIENT_THEME_NAME=$(vmtoolsd --cmd "info-get guestinfo.vcsa_webclient_theme_name")
+
+cp /root/vcsa.json.template /root/vcsa.json
+sed -i "s/VAR-ESXI-HOSTNAME/${ESXI_HOSTNAME}/g" /root/vcsa.json
+sed -i "s/VAR-ESXI-PASSWORD/${ESXI_PASSWORD}/g" /root/vcsa.json
+sed -i "s/VAR-VCSA-IP/${VCSA_IP}/g" /root/vcsa.json
+sed -i "s/VAR-VCSA-DNS/${VCSA_DNS}/g" /root/vcsa.json
+sed -i "s/VAR-VCSA-PREFIX/${VCSA_PREFIX}/g" /root/vcsa.json
+sed -i "s/VAR-VCSA-GATEWAY/${VCSA_GATEWAY}/g" /root/vcsa.json
+sed -i "s/VAR-VCSA-HOSTNAME/${VCSA_HOSTNAME}/g" /root/vcsa.json
+sed -i "s/VAR-VCSA-SSO-DOMAIN-NAME/${VCSA_SSO_DOMAIN_NAME}/g" /root/vcsa.json
+sed -i "s/VAR-VCSA-SSO-SITE-NAME/${VCSA_SSO_SITE_NAME}/g" /root/vcsa.json
+sed -i "s/VAR-VCSA-SSH-ENABLED/${VCSA_SSH_ENABLED}/g" /root/vcsa.json
+sed -i "s/VAR-VCSA-CEIP-ENABLED/${VCSA_CEIP_ENABLED}/g" /root/vcsa.json
+sed -i "s/VAR-VCSA-ROOT-PASSWORD/${VCSA_ROOT_PASSWORD}/g" /root/vcsa.json
+sed -i "s/VAR-VCSA-SSO-PASSWORD/${VCSA_SSO_PASSWORD}/g" /root/vcsa.json
+
+echo "Mounting cdrom ..." >> ${LOGFILE}
+mkdir -p /mnt/cdrom
+mount /dev/cdrom /mnt/cdrom
+
+echo "Changing into /mnt/cdrom/vcsa-cli-installer/lin64 ..." >> ${LOGFILE}
+cd /mnt/cdrom/vcsa-cli-installer/lin64
+
+echo "Starting deployment ..." >> ${LOGFILE}
+./vcsa-deploy install --accept-eula --acknowledge-ceip --no-esx-ssl-verify /root/vcsa.json >> ${LOGFILE}
+cd /root
+
+echo "Unmounting cdrom ..." >> ${LOGFILE}
+umount /mnt/cdrom
+
+echo "Creating configuration file passed from Deploy VM ..."
+VCSA_USERNAME="administrator@${VCSA_SSO_DOMAIN_NAME}"
+cat > /root/config.ps1 << __PCLI_VC_CREDENTIAL__
+\$VI_SERVER = "${VCSA_IP}"
+\$VI_USERNAME = "${VCSA_USERNAME}"
+\$VI_PASSWORD = "${VCSA_SSO_PASSWORD}"
+\$VI_DATACENTER = "${VCSA_DATACENTER_NAME}"
+\$VI_CLUSTER = "${VCSA_CLUSTER_NAME}"
+\$ESX_SERVER = "${ESXI_HOSTNAME}"
+\$ESX_PASSWORD = "${ESXI_PASSWORD}"
+\$VCSA_ROOT_PASSWORD = "${VCSA_ROOT_PASSWORD}"
+\$VCSA_WEBCLIENT_THEME_NAME = "${VCSA_WEBCLIENT_THEME_NAME}"
+__PCLI_VC_CREDENTIAL__
+
+echo "Creating vSphere Datacenter and Cluster via Pyvmomi ..."
+/usr/bin/python /root/vsan-sdk-python/samplecode/setup_vsan_cluster.py -s "${VCSA_IP}" -u "${VCSA_USERNAME}" -p "${VCSA_SSO_PASSWORD}" -d "${VCSA_DATACENTER_NAME}" -c "${VCSA_CLUSTER_NAME}" >> ${LOGFILE}
+
+echo "Starting Docker Daemon and running PowerCLI Configuration Script ..."
+systemctl start docker
+docker run --rm -v /root:/root vmware/powerclicore:ubuntu14.04 powershell /root/deploy.ps1
+
+if [ "${VCSA_WEBCLIENT_THEME_NAME}" != "" ]; then
+    echo "Configuring vSphere Web Client UI theme to ${VCSA_WEBCLIENT_THEME_NAME} ..."
+    docker run --rm -v /root:/root vmware/powerclicore:ubuntu14.04 powershell /root/change_webclient_theme.ps1
+fi
+
+echo "Changing default vSAN VM Storage Policy for single ESXi host ..."
+/usr/bin/python /root/vsan-sdk-python/samplecode/change_default_vm_storage_policy.py -s "${VCSA_IP}" -u "${VCSA_USERNAME}" -p "${VCSA_SSO_PASSWORD}" >> ${LOGFILE}
+
+touch /root/ran_vcsa_deployed
+
+END_TIME=$(date)
+
+echo "Start Time: ${START_TIME}" >> ${LOGFILE}
+echo "End   Time: ${END_TIME}" >> ${LOGFILE}
