@@ -24,7 +24,7 @@ For more details about this solution, please take a look at the following blog p
 
 * [Project USB to SDDC - Part 1](http://www.virtuallyghetto.com/2017/04/project-usb-to-sddc-part-1.html)
 * [Project USB to SDDC - Part 2](http://www.virtuallyghetto.com/2017/04/project-usb-to-sddc-part-2.html)
-* [Project USB to SDDC - Part 3](http://www.virtuallyghetto.com/2017/04/project-usb-to-sddc-part-3.html)
+* [Project USB to SDDC - Part 3](http://www.virtuallyghetto.com/2017/05/project-usb-to-sddc-part-3.html)
 
 
 ## Environment Requirements
